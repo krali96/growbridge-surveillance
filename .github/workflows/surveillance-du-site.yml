@@ -1,0 +1,33 @@
+# Surveillance externe de growbridge.cloud. Dépôt public sans aucun secret : les minutes des Actions y sont gratuites
+# (le dépôt privé avait épuisé ses minutes incluses le 9/11). Toutes les 10 minutes, GitHub vérifie le site depuis
+# l'extérieur ; trois essais ratés de suite font échouer le passage, et GitHub envoie alors un e-mail d'échec au
+# propriétaire du dépôt (notifications des Actions).
+name: Surveillance du site
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Le site, la connexion et l'API répondent
+        run: |
+          set -u
+          echec=0
+          for url in https://growbridge.cloud/ https://growbridge.cloud/login https://growbridge.cloud/api/health; do
+            ok=0
+            for essai in 1 2 3; do
+              code=$(curl -s -o /dev/null -m 20 -w "%{http_code}" "$url" || echo 000)
+              if [ "$code" -ge 200 ] && [ "$code" -lt 400 ]; then ok=1; break; fi
+              sleep 20
+            done
+            if [ "$ok" = 1 ]; then echo "OK   $url ($code)"; else echo "::error::$url ne répond pas (dernier code : $code)"; echec=1; fi
+          done
+          exit $echec
