@@ -1,22 +1,46 @@
-# Surveillance externe de growbridge.cloud. Dépôt public sans aucun secret : les minutes des Actions y sont gratuites
-# (le dépôt privé avait épuisé ses minutes incluses le 9/11). Toutes les 10 minutes, GitHub vérifie le site depuis
-# l'extérieur ; trois essais ratés de suite font échouer le passage, et GitHub envoie alors un e-mail d'échec au
-# propriétaire du dépôt (notifications des Actions).
+# SOURCE du workflow du dépôt PUBLIC krali96/growbridge-surveillance (.github/workflows/surveillance-du-site.yml).
+# Ce fichier-ci n'est exécuté par personne : il vit dans le dépôt privé pour être relu et testé, puis recopié tel
+# quel dans le dépôt public (aucun secret). Procédure : DOCS/OPERATIONS/ALERTE_SITE_EN_PANNE.md.
+#
+# Surveillance externe de growbridge.cloud. GitHub vérifie le site depuis l'extérieur ; trois essais ratés de suite
+# font échouer le passage, et GitHub envoie alors un e-mail d'échec (notifications des Actions du compte).
+#
+# MESURÉ LE 11/11 : « toutes les 10 minutes » est une DEMANDE, pas une garantie. Sur ce dépôt neuf et peu actif,
+# GitHub n'a lancé que 5 passages planifiés en 27 heures (écarts de 4 h 40 à 8 h 30). Cette surveillance est donc
+# un FILET, pas l'alerte principale : celle-ci doit venir d'un service de surveillance dédié (même document).
+#
+# Ajouts du 11/11 :
+#   - « simuler une panne » (lancement manuel) : fait échouer le passage exprès, pour vérifier une fois que
+#     l'e-mail d'échec arrive bien. Sans cet essai, personne ne sait si l'alerte atteint quelqu'un.
+#   - « signe de vie » (le 1er du mois) : un commit daté. GitHub coupe les workflows planifiés d'un dépôt public
+#     resté 60 jours sans activité ; sans ce commit, la surveillance s'éteindrait seule, en silence.
 name: Surveillance du site
 
 on:
   schedule:
     - cron: "*/10 * * * *"
+    - cron: "17 6 1 * *"
   workflow_dispatch:
+    inputs:
+      simuler_une_panne:
+        description: "Essai de l'alerte : faire échouer ce passage exprès (un e-mail d'échec doit arriver)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   site:
+    if: github.event.schedule != '17 6 1 * *'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Essai de l'alerte (panne simulée, lancement manuel seulement)
+        if: github.event_name == 'workflow_dispatch' && inputs.simuler_une_panne
+        run: |
+          echo "::error::PANNE SIMULÉE : essai de l'alerte, le site n'est pas en cause. Un e-mail d'échec doit arriver."
+          exit 1
       - name: Le site, la connexion et l'API répondent
         run: |
           set -u
@@ -31,3 +55,20 @@ jobs:
             if [ "$ok" = 1 ]; then echo "OK   $url ($code)"; else echo "::error::$url ne répond pas (dernier code : $code)"; echec=1; fi
           done
           exit $echec
+
+  signe-de-vie:
+    if: github.event.schedule == '17 6 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Un commit daté, pour que GitHub ne coupe pas la planification après 60 jours sans activité
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > signe-de-vie.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add signe-de-vie.txt
+          git commit -m "signe de vie : la surveillance planifiée reste active"
+          git push
